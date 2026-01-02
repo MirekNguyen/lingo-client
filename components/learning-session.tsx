@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useEffect, useRef } from "react"
 import { useLearnCard, useSubmitReview } from "@/lib/api"
 import { Card } from "@/components/ui/card"
@@ -19,13 +18,28 @@ export function LearningSession() {
   const [correctAnswer, setCorrectAnswer] = useState("")
   const [hasAttempted, setHasAttempted] = useState(false)
   const [wasRevealed, setWasRevealed] = useState(false)
+  
+  // 1. ADD THIS: Local state to "freeze" the current card
+  // Use 'any' or your specific Card Type here
+  const [activeCard, setActiveCard] = useState<any>(null) 
+  
   const inputRef = useRef<HTMLInputElement>(null)
 
   const { data: learnData, isLoading, refetch } = useLearnCard()
   const submitReview = useSubmitReview()
 
-  const currentCard = learnData?.card
+  // 2. MODIFY THIS: Use the local activeCard instead of learnData directly
+  const currentCard = activeCard
   const isNewWord = learnData?.type === "new"
+
+  // 3. ADD THIS: Sync effect
+  // Only update activeCard if we don't have one currently.
+  // This prevents the UI from swapping to the next word when the background query updates.
+  useEffect(() => {
+    if (learnData?.card && !activeCard) {
+      setActiveCard(learnData.card)
+    }
+  }, [learnData, activeCard])
 
   const speakVietnamese = (text: string) => {
     const utterance = new SpeechSynthesisUtterance(text)
@@ -41,12 +55,19 @@ export function LearningSession() {
     }
   }, [currentCard, feedbackState])
 
+  useEffect(() => {
+    if (currentCard?.id) {
+      setShowCorrectAnswer(false)
+      setCorrectAnswer("")
+    }
+  }, [currentCard?.id])
+
   const handleSubmit = async () => {
     if (!currentCard || !userAnswer.trim()) return
 
     const result = await submitReview.mutateAsync({
       cardId: currentCard.id,
-      userAnswer: userAnswer, // Send raw answer without sanitization
+      userAnswer: userAnswer,
       revealed: wasRevealed,
     })
 
@@ -62,6 +83,8 @@ export function LearningSession() {
     } else {
       setFeedbackState("incorrect")
       setShowCorrectAnswer(true)
+      // Note: Because we are using activeCard, even if 'learnData' updates 
+      // in the background here, the UI will stay on the incorrect word.
     }
   }
 
@@ -79,7 +102,9 @@ export function LearningSession() {
   const handleTryAgain = () => {
     setUserAnswer("")
     setFeedbackState("idle")
-    inputRef.current?.focus() // Keep correct answer visible when trying again
+    setShowCorrectAnswer(false)
+    setCorrectAnswer("")
+    inputRef.current?.focus()
   }
 
   const resetAndFetchNext = () => {
@@ -89,6 +114,9 @@ export function LearningSession() {
     setCorrectAnswer("")
     setHasAttempted(false)
     setWasRevealed(false)
+    
+    // 4. MODIFY THIS: Clear the local card to allow the useEffect to pick up the new one
+    setActiveCard(null) 
     refetch()
   }
 
@@ -100,7 +128,8 @@ export function LearningSession() {
     }
   }
 
-  if (isLoading) {
+  // Loading state remains similar, but check activeCard for main content
+  if (isLoading && !activeCard) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-gray-900 dark:to-gray-800">
         <div className="flex flex-col items-center gap-4">
@@ -111,6 +140,7 @@ export function LearningSession() {
     )
   }
 
+  // Check learnData.message, but only if we don't have an active card
   if (learnData?.message && !currentCard) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-emerald-50 dark:from-gray-900 dark:to-gray-800 p-4">
@@ -141,7 +171,6 @@ export function LearningSession() {
     : ["", currentCard.vietnamese, ""]
 
   const inputWidth = Math.max(userAnswer.length * 16 + 32, targetVie.length * 16 + 32, 100)
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-gray-900 dark:to-gray-800 p-4">
       <Card className="max-w-3xl w-full p-8 md:p-12">
